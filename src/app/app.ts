@@ -3,7 +3,7 @@ import { createConfigService } from "../service/config.service.ts";
 import { createOpcuaService } from "../service/opcua.service.ts";
 
 export const createApp = async (logger: Logger) => {
-  const waitForTerminiationSignal = () =>
+  const waitForTerminationSignal = () =>
     new Promise<void>((resolve) => {
       process.on("SIGINT", () => {
         resolve();
@@ -19,7 +19,7 @@ export const createApp = async (logger: Logger) => {
     await opcuaService.discoverEntities();
 
     logger.info("app is running");
-    await waitForTerminiationSignal();
+    await waitForTerminationSignal();
 
     await opcuaService.disconnect();
   };
