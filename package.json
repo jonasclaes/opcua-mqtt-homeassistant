@@ -1,0 +1,34 @@
+{
+  "name": "opcua-mqtt-homeassistant",
+  "version": "0.0.1",
+  "description": "An OPCUA to MQTT bridge for Home Assistant",
+  "keywords": [
+    "opcua",
+    "mqtt",
+    "homeassistant"
+  ],
+  "homepage": "https://github.com/jonasclaes/opcua-mqtt-homeassistant#readme",
+  "bugs": {
+    "url": "https://github.com/jonasclaes/opcua-mqtt-homeassistant/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jonasclaes/opcua-mqtt-homeassistant.git"
+  },
+  "license": "MIT",
+  "author": "Jonas Claes <jonas@jonasclaes.be>",
+  "type": "module",
+  "main": "src/app/app.ts",
+  "scripts": {
+    "start": "node src/cmd/opcua-mqtt-homeassistant.ts",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "node-opcua": "^2.158.0",
+    "typescript": "^5.9.3",
+    "winston": "^3.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1"
+  }
+}
