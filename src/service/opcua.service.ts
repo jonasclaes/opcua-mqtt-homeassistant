@@ -10,6 +10,9 @@ import {
 } from "node-opcua";
 import type { Logger } from "../logging/logger.ts";
 import type { ConfigService } from "./config.service.ts";
+import { createPathBuilder } from "../util/path-builder.ts";
+import { supportedDevices } from "../data/supported-devices.ts";
+import { Entity } from "../model/entity.ts";
 
 export type OpcuaService = Awaited<ReturnType<typeof createOpcuaService>>;
 
@@ -17,6 +20,8 @@ export const createOpcuaService = async (
   logger: Logger,
   configService: ConfigService
 ) => {
+  const rootPath = configService.getOpcuaRootPath();
+
   const client = OPCUAClient.create({
     applicationName: "opcua-mqtt-homeassistant",
     connectionStrategy: {
@@ -41,20 +46,6 @@ export const createOpcuaService = async (
     logger.info("disconnected from OPC UA server");
   };
 
-  const getDeviceTypePath = (rootPath: string, entitySystemName: string) =>
-    `${rootPath}."${entitySystemName}"."device"."type"`;
-
-  const getDeviceModelPath = (rootPath: string, entitySystemName: string) =>
-    `${rootPath}."${entitySystemName}"."device"."model"`;
-
-  const getDeviceManufacturerPath = (
-    rootPath: string,
-    entitySystemName: string
-  ) => `${rootPath}."${entitySystemName}"."device"."manufacturer"`;
-
-  const getDeviceNamePath = (rootPath: string, entitySystemName: string) =>
-    `${rootPath}."${entitySystemName}"."device"."name"`;
-
   const readValue = async <T>(
     session: ClientSession,
     nodeId: string
@@ -77,45 +68,95 @@ export const createOpcuaService = async (
     return dataValue.value.value;
   };
 
-  const supportedDeviceTypes = ["LIGHT"];
-  const supportedDeviceModels = ["LIGHT-UA"];
-  const supportedDeviceManufacturers = ["jonasclaes.be"];
-
-  const isSupportedEntity = async (
+  const retrieveDeviceManufacturer = async (
     session: ClientSession,
-    rootPath: string,
     entitySystemName: string
   ) => {
-    const deviceType = await readValue<string>(
+    return await readValue<string>(
       session,
-      getDeviceTypePath(rootPath, entitySystemName)
+      createPathBuilder(rootPath)
+        .entity(entitySystemName)
+        .device()
+        .manufacturer()
     );
-    if (!deviceType || !supportedDeviceTypes.includes(deviceType)) return false;
+  };
 
-    const deviceModel = await readValue<string>(
+  const retrieveDeviceModel = async (
+    session: ClientSession,
+    entitySystemName: string
+  ) => {
+    return await readValue<string>(
       session,
-      getDeviceModelPath(rootPath, entitySystemName)
+      createPathBuilder(rootPath).entity(entitySystemName).device().model()
     );
-    if (!deviceModel || !supportedDeviceModels.includes(deviceModel))
-      return false;
+  };
 
-    const deviceManufacturer = await readValue<string>(
+  const retrieveDeviceVersion = async (
+    session: ClientSession,
+    entitySystemName: string
+  ) => {
+    return await readValue<string>(
       session,
-      getDeviceManufacturerPath(rootPath, entitySystemName)
+      createPathBuilder(rootPath).entity(entitySystemName).device().version()
     );
+  };
+
+  const retrieveDeviceType = async (
+    session: ClientSession,
+    entitySystemName: string
+  ) => {
+    return await readValue<string>(
+      session,
+      createPathBuilder(rootPath).entity(entitySystemName).device().type()
+    );
+  };
+
+  const retrieveDeviceName = async (
+    session: ClientSession,
+    entitySystemName: string
+  ) => {
+    return await readValue<string>(
+      session,
+      createPathBuilder(rootPath).entity(entitySystemName).device().name()
+    );
+  };
+
+  const retrieveEntity = async (
+    session: ClientSession,
+    entitySystemName: string
+  ): Promise<Entity | null> => {
+    const deviceManufacturer = await retrieveDeviceManufacturer(
+      session,
+      entitySystemName
+    );
+    const deviceModel = await retrieveDeviceModel(session, entitySystemName);
+    const deviceVersion = await retrieveDeviceVersion(
+      session,
+      entitySystemName
+    );
+    const deviceType = await retrieveDeviceType(session, entitySystemName);
+    const deviceName = await retrieveDeviceName(session, entitySystemName);
+
     if (
-      !deviceManufacturer ||
-      !supportedDeviceManufacturers.includes(deviceManufacturer)
-    )
-      return false;
+      supportedDevices
+        .filter((device) => device.manufacturer === deviceManufacturer)
+        .filter((device) => device.model === deviceModel)
+        .filter((device) => device.version === deviceVersion)
+        .filter((device) => device.type === deviceType).length > 0 &&
+      deviceName
+    ) {
+      return new Entity(
+        entitySystemName,
+        deviceManufacturer,
+        deviceModel,
+        deviceVersion,
+        deviceType,
+        [],
+        deviceName
+      );
+    }
 
-    const deviceName = await readValue<string>(
-      session,
-      getDeviceNamePath(rootPath, entitySystemName)
-    );
-    if (!deviceName) return false;
-
-    return true;
+    return null;
   };
 
   const discoverEntities = async () => {
@@ -140,30 +181,28 @@ export const createOpcuaService = async (
       reference.browseName.name.toString()
     );
 
-    const supportedEntitySystemNames: string[] = [];
-
-    // check if the entity is supported
+    const entities: Entity[] = [];
     for (const entitySystemName of entitySystemNames) {
-      const supported = await isSupportedEntity(
-        session,
-        rootPath,
-        entitySystemName
-      );
+      const entity = await retrieveEntity(session, entitySystemName);
 
-      if (!supported) {
+      if (!entity) {
         logger.info(`skipping unsupported entity: ${entitySystemName}`);
         continue;
       }
 
-      supportedEntitySystemNames.push(entitySystemName);
+      entities.push(entity);
       logger.info(`discovered entity ${entitySystemName}`);
     }
 
     logger.info(
-      `discovered ${entitySystemNames.length} entities of which ${supportedEntitySystemNames.length} are supported`
+      `discovered ${entitySystemNames.length} entities of which ${
+        Object.keys(entities).length
+      } are supported`
     );
 
     await session.close();
+
+    return entities;
   };
 
   return {
