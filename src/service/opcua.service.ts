@@ -13,6 +13,7 @@ import type { ConfigService } from "./config.service.ts";
 import { createPathBuilder } from "../util/path-builder.ts";
 import { supportedDevices } from "../data/supported-devices.ts";
 import { Entity } from "../model/entity.ts";
+import type { Capability } from "../model/capability.ts";
 
 export type OpcuaService = Awaited<ReturnType<typeof createOpcuaService>>;
 
@@ -111,6 +112,30 @@ export const createOpcuaService = async (
     );
   };
 
+  const retrieveDeviceCapabilities = async (
+    session: ClientSession,
+    entitySystemName: string
+  ) => {
+    return {
+      onOff: await readValue<boolean>(
+        session,
+        createPathBuilder(rootPath)
+          .entity(entitySystemName)
+          .device()
+          .capabilities()
+          .onOff()
+      ),
+      brightness: await readValue<boolean>(
+        session,
+        createPathBuilder(rootPath)
+          .entity(entitySystemName)
+          .device()
+          .capabilities()
+          .brightness()
+      ),
+    };
+  };
+
   const retrieveDeviceName = async (
     session: ClientSession,
     entitySystemName: string
@@ -119,6 +144,21 @@ export const createOpcuaService = async (
       session,
       createPathBuilder(rootPath).entity(entitySystemName).device().name()
     );
+  };
+
+  const mapDeviceCapabilitiesToEntityCapabilities = (deviceCapabilities: {
+    onOff: boolean | null;
+    brightness: boolean | null;
+  }): Capability[] => {
+    const capabilities: Capability[] = [];
+    if (deviceCapabilities.onOff) {
+      capabilities.push("on_off");
+    }
+
+    if (deviceCapabilities.brightness) {
+      capabilities.push("brightness");
+    }
+    return capabilities;
   };
 
   const retrieveEntity = async (
@@ -135,6 +175,10 @@ export const createOpcuaService = async (
       entitySystemName
     );
     const deviceType = await retrieveDeviceType(session, entitySystemName);
+    const deviceCapabilities = await retrieveDeviceCapabilities(
+      session,
+      entitySystemName
+    );
     const deviceName = await retrieveDeviceName(session, entitySystemName);
 
     if (
@@ -151,7 +195,7 @@ export const createOpcuaService = async (
         deviceModel,
         deviceVersion,
         deviceType,
-        [],
+        mapDeviceCapabilitiesToEntityCapabilities(deviceCapabilities),
         deviceName
       );
     }

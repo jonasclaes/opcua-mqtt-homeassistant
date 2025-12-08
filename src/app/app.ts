@@ -11,6 +11,7 @@ export const createApp = async (logger: Logger) => {
     await opcuaService.connect();
 
     const entities = await opcuaService.discoverEntities();
+    console.log(entities.map((e) => e.toString()));
 
     logger.info("app is running");
     await waitForTerminationSignal();

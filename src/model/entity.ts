@@ -26,4 +26,12 @@ export class Entity {
     this.#capabilities = capabilities;
     this.#name = name;
   }
+
+  toString() {
+    return `Entity(systemName=${this.#systemName}, manufacturer=${
+      this.#manufacturer
+    }, model=${this.#model}, version=${this.#version}, type=${
+      this.#type
+    }, capabilities=[${this.#capabilities.join(", ")}], name=${this.#name})`;
+  }
 }
