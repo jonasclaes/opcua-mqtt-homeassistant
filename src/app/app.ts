@@ -1,22 +1,16 @@
 import type { Logger } from "../logging/logger.ts";
 import { createConfigService } from "../service/config.service.ts";
 import { createOpcuaService } from "../service/opcua.service.ts";
+import { waitForTerminationSignal } from "../util/termination-signal.ts";
 
 export const createApp = async (logger: Logger) => {
-  const waitForTerminationSignal = () =>
-    new Promise<void>((resolve) => {
-      process.on("SIGINT", () => {
-        resolve();
-      });
-    });
-
   const configService = await createConfigService();
   const opcuaService = await createOpcuaService(logger, configService);
 
   const run = async () => {
     await opcuaService.connect();
 
-    await opcuaService.discoverEntities();
+    const entities = await opcuaService.discoverEntities();
 
     logger.info("app is running");
     await waitForTerminationSignal();
