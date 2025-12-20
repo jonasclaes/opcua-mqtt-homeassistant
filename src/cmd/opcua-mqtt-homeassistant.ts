@@ -13,6 +13,6 @@ const main = async () => {
 };
 
 main().catch((err) => {
-  console.error("unhandled error", err);
+  console.error(err);
   process.exit(1);
 });

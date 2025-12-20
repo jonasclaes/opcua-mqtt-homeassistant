@@ -8,5 +8,9 @@ export const createConfigService = async () => {
     return `ns=3;s="SmartHome_Data"`;
   };
 
-  return { getOpcuaUrl, getOpcuaRootPath };
+  const getMqttUrl = () => {
+    return "mqtt://localhost:1883";
+  };
+
+  return { getOpcuaUrl, getOpcuaRootPath, getMqttUrl };
 };

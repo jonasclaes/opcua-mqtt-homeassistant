@@ -3,7 +3,11 @@ export const createPathBuilder = (rootPath: string) => {
 
   const entity = (entitySystemName: string) => {
     path += `."${entitySystemName}"`;
-    return { device: entityDevice };
+    return {
+      device: entityDevice,
+      status: entityStatus,
+      control: entityControl,
+    };
   };
 
   const entityDevice = () => {
@@ -58,6 +62,43 @@ export const createPathBuilder = (rootPath: string) => {
   };
 
   const entityDeviceCapabilitiesBrightness = () => {
+    path += `."brightness"`;
+    return path;
+  };
+
+  const entityStatus = () => {
+    path += `."status"`;
+    return {
+      path,
+      onOff: entityStatusOn,
+      brightness: entityStatusBrightness,
+    };
+  };
+
+  const entityStatusOn = () => {
+    path += `."on"`;
+    return path;
+  };
+
+  const entityStatusBrightness = () => {
+    path += `."brightness"`;
+    return path;
+  };
+
+  const entityControl = () => {
+    path += `."control"`;
+    return {
+      onOff: entityControlOn,
+      brightness: entityControlBrightness,
+    };
+  };
+
+  const entityControlOn = () => {
+    path += `."on"`;
+    return path;
+  };
+
+  const entityControlBrightness = () => {
     path += `."brightness"`;
     return path;
   };

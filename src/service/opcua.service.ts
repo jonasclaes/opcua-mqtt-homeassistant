@@ -1,19 +1,18 @@
 import {
   AttributeIds,
-  BrowseDirection,
+  ClientMonitoredItem,
+  ClientSubscription,
   MessageSecurityMode,
-  NodeClassMask,
   OPCUAClient,
-  ResultMask,
+  ReadValueId,
   SecurityPolicy,
+  TimestampsToReturn,
   type ClientSession,
+  type MonitoringParametersOptions,
+  type ReadValueIdOptions,
 } from "node-opcua";
 import type { Logger } from "../logging/logger.ts";
 import type { ConfigService } from "./config.service.ts";
-import { createPathBuilder } from "../util/path-builder.ts";
-import { supportedDevices } from "../data/supported-devices.ts";
-import { Entity } from "../model/entity.ts";
-import type { Capability } from "../model/capability.ts";
 
 export type OpcuaService = Awaited<ReturnType<typeof createOpcuaService>>;
 
@@ -21,8 +20,6 @@ export const createOpcuaService = async (
   logger: Logger,
   configService: ConfigService
 ) => {
-  const rootPath = configService.getOpcuaRootPath();
-
   const client = OPCUAClient.create({
     applicationName: "opcua-mqtt-homeassistant",
     connectionStrategy: {
@@ -40,6 +37,9 @@ export const createOpcuaService = async (
     logger.info(`connecting to OPC UA server at ${opcuaUrl}`);
     await client.connect(opcuaUrl);
     logger.info("connected to OPC UA server");
+
+    await getSession();
+    await setupSubscription();
   };
 
   const disconnect = async () => {
@@ -47,10 +47,21 @@ export const createOpcuaService = async (
     logger.info("disconnected from OPC UA server");
   };
 
-  const readValue = async <T>(
-    session: ClientSession,
-    nodeId: string
-  ): Promise<T | null> => {
+  let _session: ClientSession | null = null;
+  const getSession = async (): Promise<ClientSession> => {
+    if (_session) {
+      return _session;
+    }
+
+    logger.info("creating OPC UA session");
+    const session = await client.createSession();
+    logger.info("OPC UA session created");
+    _session = session;
+    return _session;
+  };
+
+  const readValue = async <T>(nodeId: string): Promise<T | null> => {
+    const session = await getSession();
     const dataValue = await session.read(
       {
         nodeId,
@@ -69,189 +80,91 @@ export const createOpcuaService = async (
     return dataValue.value.value;
   };
 
-  const retrieveDeviceManufacturer = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return await readValue<string>(
-      session,
-      createPathBuilder(rootPath)
-        .entity(entitySystemName)
-        .device()
-        .manufacturer()
-    );
-  };
-
-  const retrieveDeviceModel = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return await readValue<string>(
-      session,
-      createPathBuilder(rootPath).entity(entitySystemName).device().model()
-    );
-  };
-
-  const retrieveDeviceVersion = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return await readValue<string>(
-      session,
-      createPathBuilder(rootPath).entity(entitySystemName).device().version()
-    );
-  };
-
-  const retrieveDeviceType = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return await readValue<string>(
-      session,
-      createPathBuilder(rootPath).entity(entitySystemName).device().type()
-    );
-  };
-
-  const retrieveDeviceCapabilities = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return {
-      onOff: await readValue<boolean>(
-        session,
-        createPathBuilder(rootPath)
-          .entity(entitySystemName)
-          .device()
-          .capabilities()
-          .onOff()
-      ),
-      brightness: await readValue<boolean>(
-        session,
-        createPathBuilder(rootPath)
-          .entity(entitySystemName)
-          .device()
-          .capabilities()
-          .brightness()
-      ),
-    };
-  };
-
-  const retrieveDeviceName = async (
-    session: ClientSession,
-    entitySystemName: string
-  ) => {
-    return await readValue<string>(
-      session,
-      createPathBuilder(rootPath).entity(entitySystemName).device().name()
-    );
-  };
-
-  const mapDeviceCapabilitiesToEntityCapabilities = (deviceCapabilities: {
-    onOff: boolean | null;
-    brightness: boolean | null;
-  }): Capability[] => {
-    const capabilities: Capability[] = [];
-    if (deviceCapabilities.onOff) {
-      capabilities.push("on_off");
-    }
-
-    if (deviceCapabilities.brightness) {
-      capabilities.push("brightness");
-    }
-    return capabilities;
-  };
-
-  const retrieveEntity = async (
-    session: ClientSession,
-    entitySystemName: string
-  ): Promise<Entity | null> => {
-    const deviceManufacturer = await retrieveDeviceManufacturer(
-      session,
-      entitySystemName
-    );
-    const deviceModel = await retrieveDeviceModel(session, entitySystemName);
-    const deviceVersion = await retrieveDeviceVersion(
-      session,
-      entitySystemName
-    );
-    const deviceType = await retrieveDeviceType(session, entitySystemName);
-    const deviceCapabilities = await retrieveDeviceCapabilities(
-      session,
-      entitySystemName
-    );
-    const deviceName = await retrieveDeviceName(session, entitySystemName);
-
-    if (
-      supportedDevices
-        .filter((device) => device.manufacturer === deviceManufacturer)
-        .filter((device) => device.model === deviceModel)
-        .filter((device) => device.version === deviceVersion)
-        .filter((device) => device.type === deviceType).length > 0 &&
-      deviceName
-    ) {
-      return new Entity(
-        entitySystemName,
-        deviceManufacturer,
-        deviceModel,
-        deviceVersion,
-        deviceType,
-        mapDeviceCapabilitiesToEntityCapabilities(deviceCapabilities),
-        deviceName
-      );
-    }
-
-    return null;
-  };
-
-  const discoverEntities = async () => {
-    logger.info("discovering entities");
-
-    const rootPath = configService.getOpcuaRootPath();
-    const session = await client.createSession();
-
-    const browseResult = await session.browse({
-      nodeId: rootPath,
-      includeSubtypes: true,
-      nodeClassMask: NodeClassMask.Object | NodeClassMask.Variable,
-      browseDirection: BrowseDirection.Forward,
-      resultMask:
-        ResultMask.BrowseName |
-        ResultMask.DisplayName |
-        ResultMask.NodeClass |
-        ResultMask.TypeDefinition,
+  const writeValue = async (nodeId: string, value: unknown) => {
+    const session = await getSession();
+    const result = await session.write({
+      nodeId,
+      attributeId: AttributeIds.Value,
+      value,
     });
 
-    const entitySystemNames = browseResult.references.map((reference) =>
-      reference.browseName.name.toString()
-    );
-
-    const entities: Entity[] = [];
-    for (const entitySystemName of entitySystemNames) {
-      const entity = await retrieveEntity(session, entitySystemName);
-
-      if (!entity) {
-        logger.info(`skipping unsupported entity: ${entitySystemName}`);
-        continue;
-      }
-
-      entities.push(entity);
-      logger.info(`discovered entity ${entitySystemName}`);
+    if (result.isNotGood()) {
+      logger.warn(
+        `failed to write value at nodeId ${nodeId}: ${result.toString()}`
+      );
+      return false;
     }
 
-    logger.info(
-      `discovered ${entitySystemNames.length} entities of which ${
-        Object.keys(entities).length
-      } are supported`
+    return true;
+  };
+
+  let subscription: ClientSubscription;
+  const setupSubscription = async () => {
+    const session = await getSession();
+
+    subscription = ClientSubscription.create(session, {
+      requestedPublishingInterval: 1000,
+      requestedLifetimeCount: 100,
+      requestedMaxKeepAliveCount: 10,
+      maxNotificationsPerPublish: 10000,
+      publishingEnabled: true,
+      priority: 10,
+    });
+
+    subscription.on("started", () => {
+      logger.debug(
+        `opcua subscription started with id ${subscription.subscriptionId}`
+      );
+    });
+
+    subscription.on("keepalive", () => {
+      logger.debug(
+        `opcua subscription with id ${subscription.subscriptionId} keepalive`
+      );
+    });
+
+    subscription.on("terminated", () => {
+      logger.debug(
+        `opcua subscription with id ${subscription.subscriptionId} terminated`
+      );
+    });
+  };
+
+  const subscribeToValueChanges = async <T>(
+    nodeId: string,
+    callback: (value: T) => void
+  ) => {
+    const itemToMonitor: ReadValueIdOptions = {
+      nodeId,
+      attributeId: AttributeIds.Value,
+    };
+
+    const parameters: MonitoringParametersOptions = {
+      samplingInterval: 100,
+      discardOldest: true,
+      queueSize: 10,
+    };
+
+    const monitoredItem = ClientMonitoredItem.create(
+      subscription,
+      itemToMonitor,
+      parameters,
+      TimestampsToReturn.Both
     );
 
-    await session.close();
+    logger.debug(`monitoring OPC UA nodeId ${nodeId} for value changes`);
 
-    return entities;
+    monitoredItem.on("changed", (dataValue) => {
+      callback(dataValue.value.value);
+    });
   };
 
   return {
     connect,
     disconnect,
-    discoverEntities,
+    readValue,
+    writeValue,
+    getSession,
+    subscribeToValueChanges,
   };
 };
